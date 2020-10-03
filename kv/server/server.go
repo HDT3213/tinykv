@@ -37,23 +37,81 @@ func NewServer(storage storage.Storage) *Server {
 
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	ctx := &kvrpcpb.Context{}
+	reader, err := server.storage.Reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data, err := reader.GetCF(req.Cf, req.Key)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return &kvrpcpb.RawGetResponse{
+			NotFound: true,
+		}, nil
+	}
+	return &kvrpcpb.RawGetResponse{
+		Value: data,
+	}, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	put := storage.Put{
+		Cf:    req.Cf,
+		Key:   req.Key,
+		Value: req.Value,
+	}
+	ctx := &kvrpcpb.Context{}
+	err := server.storage.Write(ctx, []storage.Modify{
+		{Data: put},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &kvrpcpb.RawPutResponse{}, nil
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	del := storage.Delete{
+		Cf:  req.Cf,
+		Key: req.Key,
+	}
+	ctx := &kvrpcpb.Context{}
+	err := server.storage.Write(ctx, []storage.Modify{
+		{Data: del},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &kvrpcpb.RawDeleteResponse{}, nil
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	ctx := &kvrpcpb.Context{}
+	reader, err := server.storage.Reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kvs := make([]*kvrpcpb.KvPair, 0)
+	iter := reader.IterCF(req.Cf)
+	for iter.Seek(req.StartKey); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		value, err := item.ValueCopy(nil)
+		if err != nil {
+			return nil, err
+		}
+		kvs = append(kvs, &kvrpcpb.KvPair{
+			Key:   item.KeyCopy(nil),
+			Value: value,
+		})
+		if req.Limit != 0 && len(kvs) == int(req.Limit) {
+			break
+		}
+	}
+	return &kvrpcpb.RawScanResponse{
+		Kvs: kvs,
+	}, nil
 }
 
 // Raft commands (tinykv <-> tinykv)
